@@ -357,6 +357,11 @@ static int hf_vbucket_states_size = -1;
 static int hf_vbucket_states_id = -1;
 static int hf_vbucket_states_seqno = -1;
 
+static int hf_bucket_type = -1;
+static int hf_bucket_config = -1;
+static int hf_config_key = -1;
+static int hf_config_value = -1;
+
 static int hf_multipath_opcode = -1;
 static int hf_multipath_index = -1;
 static int hf_multipath_pathlen = -1;
@@ -384,6 +389,8 @@ static gint ett_observe = -1;
 static gint ett_failover_log = -1;
 static gint ett_vbucket_states = -1;
 static gint ett_multipath = -1;
+static gint ett_config = -1;
+static gint ett_config_key = -1;
 
 static const value_string magic_vals[] = {
   { MAGIC_REQUEST,     "Request"  },
@@ -1489,6 +1496,35 @@ dissect_value(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
             ti = proto_tree_add_item(tree, hf_value, tvb, offset + path_len,
                                      value_len, ENC_ASCII | ENC_NA);
         }
+    } else if (request && opcode == PROTOCOL_BINARY_CMD_CREATE_BUCKET) {
+      gint sep, equals_pos, sep_pos;
+
+      /* There are 2 main items stored in the value. The bucket type (represented by a path to the engine) and the
+       * bucket config. These are separated by a NULL byte with the bucket type coming first.*/
+
+      sep = tvb_find_guint8(tvb, offset, value_len, 0x00);
+      proto_tree_add_item(tree, hf_bucket_type, tvb, offset, sep - offset, ENC_ASCII|ENC_NA);
+      guint32 config_len = value_len - (sep - offset) - 1;
+      offset = sep + 1;
+
+      ti = proto_tree_add_item(tree, hf_bucket_config, tvb, offset, config_len, ENC_ASCII|ENC_NA);
+      proto_tree *config_tree = proto_item_add_subtree(ti, ett_config);
+
+      /* The config is arranged as "key=value;key=value..."*/
+      while (config_len > 0) {
+        //Get the key
+        equals_pos = tvb_find_guint8(tvb, offset, config_len, 0x3d);
+        ti = proto_tree_add_item(config_tree, hf_config_key, tvb, offset, equals_pos - offset, ENC_ASCII | ENC_NA);
+        proto_tree *key_tree = proto_item_add_subtree(ti, ett_config_key);
+        config_len -= (equals_pos - offset + 1);
+        offset = equals_pos + 1;
+
+        //Get the value
+        sep_pos = tvb_find_guint8(tvb, offset, config_len, 0x3b);
+        proto_tree_add_item(key_tree, hf_config_value, tvb, offset, sep_pos - offset, ENC_ASCII | ENC_NA);
+        config_len -= (sep_pos - offset + 1);
+        offset = sep_pos + 1;
+      }
     } else {
       ti = proto_tree_add_item(tree, hf_value, tvb, offset, value_len, ENC_ASCII | ENC_NA);
     }
@@ -1842,6 +1878,11 @@ proto_register_couchbase(void)
     { &hf_multipath_path, { "Path", "couchbase.multipath.path", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL } },
     { &hf_multipath_valuelen, { "Value Length", "couchbase.multipath.value.length", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL } },
     { &hf_multipath_value, { "Value", "couchbase.multipath.value", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL } },
+
+    { &hf_bucket_type, {"Bucket Type", "couchbase.bucket.type", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL} },
+    { &hf_bucket_config, {"Bucket Config", "couchbase.bucket.config", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL} },
+    { &hf_config_key, {"Key", "couchbase.bucket.config.key", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL} },
+    { &hf_config_value, {"Value", "couchbase.bucket.config.value", FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL} },
   };
 
   static ei_register_info ei[] = {
@@ -1865,7 +1906,9 @@ proto_register_couchbase(void)
     &ett_observe,
     &ett_failover_log,
     &ett_vbucket_states,
-    &ett_multipath
+    &ett_multipath,
+    &ett_config,
+    &ett_config_key
   };
 
   module_t *couchbase_module;
