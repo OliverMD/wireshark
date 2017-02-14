@@ -47,6 +47,7 @@
 
 
 #include "packet-tcp.h"
+#include "packet-ssl.h"
 
 #define PNAME  "Couchbase Protocol"
 #define PSNAME "Couchbase"
@@ -54,6 +55,7 @@
 
 #define COUCHBASE_DEFAULT_PORT        "11210"
 #define COUCHBASE_HEADER_LEN   24
+#define COUCHBASE_SSL_PORT 11207
 
  /* Magic Byte */
 #define MAGIC_REQUEST         0x80
@@ -645,6 +647,7 @@ static const int * subdoc_flags[] = {
 };
 
 static dissector_handle_t couchbase_tcp_handle;
+static dissector_handle_t couchbase_handle;
 static dissector_handle_t json_handle;
 
 /* desegmentation of COUCHBASE payload */
@@ -2052,10 +2055,13 @@ void
 proto_reg_handoff_couchbase(void)
 {
   couchbase_tcp_handle = create_dissector_handle(dissect_couchbase_tcp, proto_couchbase);
+  couchbase_handle = register_dissector("couchbase", dissect_couchbase_tcp, proto_couchbase);
 
   dissector_add_uint_range_with_preference("tcp.port", COUCHBASE_DEFAULT_PORT, couchbase_tcp_handle);
 
   json_handle = find_dissector_add_dependency("json", proto_couchbase);
+
+  ssl_dissector_add(COUCHBASE_SSL_PORT, couchbase_handle);
 }
 
 /*
